@@ -42,6 +42,8 @@ export function AvatarMediaStack({
 }: AvatarMediaStackProps) {
   const showLive = isReady && isTalking;
   const idleReady = idleAssetStatus === "ready" && !!idleAssetUrl;
+  /** Prefer idle/live over any still — never flash a photo when an idle clip exists. */
+  const preferIdleOrLive = idleReady || !!idleAssetUrl;
 
   const [layerA, setLayerA] = useState<{ url: string; muted: boolean; loop: boolean } | null>(
     overlayVideoUrl ? { url: overlayVideoUrl, muted: !!overlayVideoMuted, loop: !!overlayVideoLoop } : null,
@@ -146,7 +148,7 @@ export function AvatarMediaStack({
         }`}
       />
 
-      {staticPhotoUrl && !showLive && !idleReady && !hasOverlay && (
+      {staticPhotoUrl && !showLive && !preferIdleOrLive && !hasOverlay && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={staticPhotoUrl}

@@ -7,7 +7,6 @@ import { useAvatarAssetVideos } from "@/hooks/useAvatarAssetVideos";
 import { useLiveKitAvatar } from "@/hooks/useLiveKitAvatar";
 import { getAssetUrls, pickNextAssetUrl } from "@/lib/asset-videos";
 import {
-  MESSI_AVATAR_SRC,
   MESSI_CELEBRITY_ID,
   MESSI_DISPLAY_NAME,
   MESSI_HERO_SRC,
@@ -148,7 +147,8 @@ export default function VoxlyExperiencePage() {
   /** Same as aidols AvatarView: live video only while speaking. */
   const showLiveVideo = avatar.isReady && isTalking && !avatar.renderFailed;
   const statusLabel = isTalking ? "Speaking" : waiting || busy === "session" ? "Thinking" : "Listening";
-  const avatarPhoto = celebrity?.photo_url || MESSI_AVATAR_SRC;
+  /** API photo only — never local placeholder before idle/live video. */
+  const avatarPhoto = celebrity?.photo_url || undefined;
   const displayName = celebrity?.display_name || MESSI_DISPLAY_NAME;
   const displayTag = celebrity?.tagline || MESSI_TAG;
 
