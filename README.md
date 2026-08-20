@@ -1,8 +1,10 @@
-# AIDOLS Partner frontend
+# AIDOLS Partner frontend (VOXLY Messi experience)
 
-Minimal Next.js playground for **API Services** (`/api/v1/external/*`). Same dark + orange theme as admin / user frontends.
+Public-facing Next.js experience matching the VOXLY Lovable demo: hero + animated marquee + **Talk with Messi** live session.
 
-The partner API key lives in `.env` as `AIDOLS_API_TOKEN`. Server BFF routes attach it as `Authorization: Bearer …` so the browser never needs the full key for REST.
+- Celebrity is fixed: `adrian_vega_ficticio` (Lionel Messi)
+- No catalog / token paste UI — `AIDOLS_API_TOKEN` stays server-side in `.env`
+- Chat uses partner external APIs (sessions + WS stream + LiveKit avatar)
 
 ## Setup
 

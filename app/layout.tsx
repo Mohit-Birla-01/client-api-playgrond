@@ -1,18 +1,19 @@
 import type { Metadata, Viewport } from "next";
-import { Space_Grotesk, Inter } from "next/font/google";
+import { Instrument_Serif, Work_Sans } from "next/font/google";
 import "./globals.css";
 
-const spaceGrotesk = Space_Grotesk({
+const workSans = Work_Sans({
   subsets: ["latin"],
-  weight: ["500", "600", "700"],
-  variable: "--font-display",
+  weight: ["400", "500", "600", "700", "800", "900"],
+  variable: "--font-work",
   display: "swap",
 });
 
-const inter = Inter({
+const instrumentSerif = Instrument_Serif({
   subsets: ["latin"],
-  weight: ["400", "500", "600", "700"],
-  variable: "--font-body",
+  weight: ["400"],
+  style: ["normal", "italic"],
+  variable: "--font-instrument",
   display: "swap",
 });
 
@@ -22,14 +23,15 @@ export const viewport: Viewport = {
 };
 
 export const metadata: Metadata = {
-  title: "AIDOLS Partner API",
-  description: "Smoke-test the partner API Services surface with a minted API key.",
+  title: "VOXLY Experience — A new way to live football",
+  description:
+    "Step inside the game. Feel the pressure, emotion and adrenaline — then talk with Messi live.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en" className={`${spaceGrotesk.variable} ${inter.variable}`}>
-      <body className="min-h-screen antialiased">{children}</body>
+    <html lang="en" className={`${workSans.variable} ${instrumentSerif.variable}`}>
+      <body className={`${workSans.className} min-h-screen antialiased`}>{children}</body>
     </html>
   );
 }

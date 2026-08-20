@@ -22,7 +22,8 @@ interface UseLiveKitAvatarReturn {
   isTalking: boolean;
   error: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
-  startSession: () => Promise<void>;
+  /** Pass sessionId when calling right after create — avoids React state race. */
+  startSession: (sessionIdOverride?: string) => Promise<void>;
   stopSession: () => Promise<void>;
 }
 
@@ -48,14 +49,39 @@ export function useLiveKitAvatar({
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const frameMonitorRef = useRef<{ stop: () => void } | null>(null);
 
-  const startSession = useCallback(async () => {
-    const currentSessionId = sessionIdRef.current;
+  const startSession = useCallback(async (sessionIdOverride?: string) => {
+    const currentSessionId = sessionIdOverride ?? sessionIdRef.current;
+    if (sessionIdOverride) {
+      sessionIdRef.current = sessionIdOverride;
+    }
     if (!currentSessionId) {
       startPendingRef.current = true;
       setIsLoading(true);
       return;
     }
     startPendingRef.current = false;
+
+    // Tear down any prior room before joining again.
+    if (roomRef.current) {
+      try {
+        await roomRef.current.disconnect();
+      } catch {
+        // ignore
+      }
+      roomRef.current = null;
+    }
+    if (frameMonitorRef.current) {
+      frameMonitorRef.current.stop();
+      frameMonitorRef.current = null;
+    }
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
+    }
+    setIsReady(false);
+    setIsTalking(false);
+    setIsConnected(false);
+
     try {
       setIsLoading(true);
       setError(null);
@@ -87,7 +113,12 @@ export function useLiveKitAvatar({
       ) => {
         if (track.kind === Track.Kind.Video) {
           const videoEl = videoRef.current;
-          if (videoEl) track.attach(videoEl);
+          if (videoEl) {
+            track.attach(videoEl);
+            void videoEl.play().catch(() => {
+              // Autoplay may be blocked until a user gesture; Start session is a gesture.
+            });
+          }
 
           const startFrameMonitor = () => {
             const vidEl = videoRef.current;
@@ -198,6 +229,9 @@ export function useLiveKitAvatar({
           const el = track.attach();
           el.style.display = "none";
           document.body.appendChild(el);
+          void (el as HTMLMediaElement).play().catch(() => {
+            // Same gesture / autoplay caveat as video.
+          });
         }
       };
 

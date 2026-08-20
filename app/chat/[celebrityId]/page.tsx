@@ -229,7 +229,7 @@ export default function PartnerChatPage() {
       setSession(info);
       sessionStartedRef.current = true;
       await connectWs(info);
-      await avatar.startSession();
+      await avatar.startSession(info.session_id);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to create session");
       setSession(null);
