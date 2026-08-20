@@ -14,6 +14,10 @@ interface AvatarViewProps {
   tagline?: string;
 }
 
+/**
+ * Same live/idle switch as aidols-user / aidols-frontend AvatarView:
+ * show LiveKit video only while isReady && isTalking; otherwise photo.
+ */
 export function AvatarView({
   videoRef,
   isReady,
@@ -27,8 +31,10 @@ export function AvatarView({
   staticPhotoUrl,
   tagline,
 }: AvatarViewProps) {
+  const showLive = isReady && isTalking;
+
   const speakingGlow = isTalking
-    ? "shadow-[0_0_32px_4px_rgba(255,149,0,0.30)] ring-1 ring-[var(--accent)]/50"
+    ? "shadow-[0_0_32px_4px_rgba(108,71,255,0.35)] ring-1 ring-[#6c47ff]/50"
     : "";
 
   return (
@@ -37,13 +43,16 @@ export function AvatarView({
         <div
           className={`pointer-events-auto relative aspect-square h-full max-h-[260px] shrink-0 overflow-hidden rounded-full border-4 bg-black/20 transition-all duration-500 sm:max-h-[280px] md:max-h-[300px] ${speakingGlow}`}
         >
+          {/* Live track always mounted; visible only while speaking */}
           <video
             ref={videoRef}
             autoPlay
             playsInline
-            className={`h-full w-full object-contain transition-opacity duration-500 ${isReady ? "opacity-100" : "opacity-0"}`}
+            className={`h-full w-full object-contain transition-opacity duration-500 ${
+              showLive ? "opacity-100" : "opacity-0"
+            }`}
           />
-          {staticPhotoUrl && !isReady && (
+          {staticPhotoUrl && !showLive && (
             // eslint-disable-next-line @next/next/no-img-element
             <img
               src={staticPhotoUrl}
@@ -71,7 +80,7 @@ export function AvatarView({
               <button
                 type="button"
                 onClick={onRetry}
-                className="rounded-full bg-[var(--accent)] px-4 py-1.5 text-sm text-black hover:opacity-80"
+                className="rounded-full bg-[#6c47ff] px-4 py-1.5 text-sm text-white hover:opacity-80"
               >
                 Retry
               </button>
@@ -83,16 +92,16 @@ export function AvatarView({
       {isConnected && !isReady && !isLoading && !error && (
         <div className="pointer-events-none absolute bottom-[5.5rem] left-1/2 z-10 -translate-x-1/2">
           <div className="flex items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 backdrop-blur-sm">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--accent)]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#6c47ff]" />
             <span className="text-xs text-white/70">Preparing avatar…</span>
           </div>
         </div>
       )}
 
-      {!staticPhotoUrl && !isLoading && !error && !isReady && (
+      {!staticPhotoUrl && !isLoading && !error && !showLive && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
           <div className="text-center">
-            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--bg-bubble-avatar)] font-display text-3xl font-bold text-[var(--accent)]">
+            <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--bg-bubble-avatar)] text-3xl font-bold text-[#6c47ff]">
               {celebrityInitials}
             </div>
           </div>
@@ -100,7 +109,7 @@ export function AvatarView({
       )}
 
       <div className="absolute right-3 top-3">
-        <span className="rounded-full border border-[var(--accent)]/40 bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-[var(--accent)] backdrop-blur-sm">
+        <span className="rounded-full border border-[#6c47ff]/40 bg-black/60 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-[#6c47ff] backdrop-blur-sm">
           Digital Twin
         </span>
       </div>
@@ -108,9 +117,7 @@ export function AvatarView({
       {(celebrityName || tagline) && (
         <div className="pointer-events-none absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/80 via-black/40 to-transparent px-4 pb-4 pt-10 text-center">
           {celebrityName && (
-            <p className="font-display text-base font-bold leading-tight text-white sm:text-lg">
-              {celebrityName}
-            </p>
+            <p className="text-base font-bold leading-tight text-white sm:text-lg">{celebrityName}</p>
           )}
           {tagline && <p className="mt-0.5 line-clamp-1 text-xs text-white/60">{tagline}</p>}
         </div>
@@ -119,8 +126,8 @@ export function AvatarView({
       {isTalking && (
         <div className="pointer-events-none absolute bottom-[5.5rem] left-1/2 z-10 flex -translate-x-1/2 items-center gap-2 rounded-full bg-black/60 px-3 py-1.5 backdrop-blur-sm">
           <span className="flex h-2 w-2 items-center justify-center">
-            <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-[var(--accent)] opacity-75" />
-            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[var(--accent)]" />
+            <span className="absolute inline-flex h-2 w-2 animate-ping rounded-full bg-[#6c47ff] opacity-75" />
+            <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-[#6c47ff]" />
           </span>
           <span className="text-xs font-medium text-white">Speaking</span>
         </div>

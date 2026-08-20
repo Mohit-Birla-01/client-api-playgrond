@@ -127,6 +127,7 @@ export default function VoxlyExperiencePage() {
   const sessionStartedRef = useRef(false);
   const workerFailedRef = useRef(false);
   const livekitErrorRef = useRef<string | null>(null);
+  const renderFailedRef = useRef(false);
   const talkRef = useRef<HTMLElement | null>(null);
   sessionRef.current = session;
 
@@ -138,8 +139,11 @@ export default function VoxlyExperiencePage() {
 
   workerFailedRef.current = workerFailed;
   livekitErrorRef.current = avatar.error;
+  renderFailedRef.current = avatar.renderFailed;
 
   const isTalking = avatar.isTalking;
+  /** Same as aidols AvatarView: live video only while speaking. */
+  const showLiveVideo = avatar.isReady && isTalking && !avatar.renderFailed;
   const statusLabel = isTalking ? "Speaking" : waiting || busy === "session" ? "Thinking" : "Listening";
   const avatarPhoto = celebrity?.photo_url || MESSI_AVATAR_SRC;
   const displayName = celebrity?.display_name || MESSI_DISPLAY_NAME;
@@ -235,7 +239,13 @@ export default function VoxlyExperiencePage() {
         }
 
         if (payload.type === "audio_chunk" && typeof payload.data?.audio === "string") {
-          if (!sessionStartedRef.current || livekitErrorRef.current || workerFailedRef.current) {
+          // Same fallback as consumer: play WS audio when LiveKit video isn't driving the turn.
+          if (
+            !sessionStartedRef.current ||
+            livekitErrorRef.current ||
+            workerFailedRef.current ||
+            renderFailedRef.current
+          ) {
             enqueueChunk(payload.data.audio);
           }
           return;
@@ -522,22 +532,22 @@ export default function VoxlyExperiencePage() {
                     WebkitMaskImage: "radial-gradient(circle at 50% 45%, #000 52%, rgba(0,0,0,0.65) 70%, transparent 84%)",
                   }}
                 >
-                  {/* LiveKit talking-head video — always mounted so the track can attach */}
+                  {/* LiveKit always mounted; visible only while speaking (same as aidols AvatarView) */}
                   <video
                     ref={avatar.videoRef}
                     autoPlay
                     playsInline
                     className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      avatar.isReady ? "opacity-100" : "opacity-0"
+                      showLiveVideo ? "opacity-100" : "opacity-0"
                     }`}
                   />
-                  {/* Aidols celebrity photo until LiveKit video is ready */}
+                  {/* Photo / idle while not speaking */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={avatarPhoto}
                     alt={displayName}
                     className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      avatar.isReady ? "opacity-0" : "opacity-100"
+                      showLiveVideo ? "opacity-0" : "opacity-100"
                     }`}
                   />
                   {(avatar.isLoading || busy === "session") && !avatar.isReady && (

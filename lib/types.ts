@@ -51,6 +51,22 @@ export interface ChatLine {
   text: string;
 }
 
+/** LiveKit data-channel events from the avatar worker (same as user/admin). */
+export interface AvatarSpeechStartEvent {
+  type: "speech_start";
+}
+export interface AvatarSpeechEndEvent {
+  type: "speech_end";
+}
+export interface AvatarRenderFailedEvent {
+  type: "render_failed";
+  error?: string;
+}
+export type AvatarDataEvent =
+  | AvatarSpeechStartEvent
+  | AvatarSpeechEndEvent
+  | AvatarRenderFailedEvent;
+
 export async function readError(res: Response): Promise<string> {
   try {
     const body = await res.json();

@@ -8,7 +8,9 @@ import {
   RemoteTrack,
   RemoteTrackPublication,
   RemoteParticipant,
+  VideoQuality,
 } from "livekit-client";
+import type { AvatarDataEvent } from "@/lib/types";
 
 interface UseLiveKitAvatarOptions {
   celebrityId: string;
@@ -20,6 +22,8 @@ interface UseLiveKitAvatarReturn {
   isConnected: boolean;
   isLoading: boolean;
   isTalking: boolean;
+  /** True between render_failed and next speech_start — fall back to photo + WS audio. */
+  renderFailed: boolean;
   error: string | null;
   videoRef: React.RefObject<HTMLVideoElement | null>;
   /** Pass sessionId when calling right after create — avoids React state race. */
@@ -28,9 +32,11 @@ interface UseLiveKitAvatarReturn {
 }
 
 /**
- * Same subscriber logic as the consumer chat: mint a viewer JWT, join the
- * session room, attach video to the always-mounted <video>, skip H.264 green
- * init frames, and drive isTalking from decoded-frame activity.
+ * Same subscriber logic as aidols-user / aidols-frontend:
+ * - mint viewer JWT, join session room
+ * - skip H.264 green init frames before isReady
+ * - drive isTalking from worker speech_start / speech_end (data channel)
+ * - Avatar UI shows live video only while isReady && isTalking
  */
 export function useLiveKitAvatar({
   celebrityId,
@@ -41,13 +47,13 @@ export function useLiveKitAvatar({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isTalking, setIsTalking] = useState(false);
+  const [renderFailed, setRenderFailed] = useState(false);
   const roomRef = useRef<Room | null>(null);
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const sessionIdRef = useRef(sessionId);
   sessionIdRef.current = sessionId;
   const startPendingRef = useRef(false);
   const revealTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const frameMonitorRef = useRef<{ stop: () => void } | null>(null);
 
   const startSession = useCallback(async (sessionIdOverride?: string) => {
     const currentSessionId = sessionIdOverride ?? sessionIdRef.current;
@@ -61,7 +67,6 @@ export function useLiveKitAvatar({
     }
     startPendingRef.current = false;
 
-    // Tear down any prior room before joining again.
     if (roomRef.current) {
       try {
         await roomRef.current.disconnect();
@@ -70,16 +75,13 @@ export function useLiveKitAvatar({
       }
       roomRef.current = null;
     }
-    if (frameMonitorRef.current) {
-      frameMonitorRef.current.stop();
-      frameMonitorRef.current = null;
-    }
     if (revealTimerRef.current) {
       clearTimeout(revealTimerRef.current);
       revealTimerRef.current = null;
     }
     setIsReady(false);
     setIsTalking(false);
+    setRenderFailed(false);
     setIsConnected(false);
 
     try {
@@ -103,78 +105,35 @@ export function useLiveKitAvatar({
         throw new Error("Backend returned incomplete LiveKit credentials");
       }
 
-      const room = new Room({ adaptiveStream: true, dynacast: true });
+      // Match consumer/admin: full-res layer, no adaptive downscale in the circle.
+      const room = new Room({ adaptiveStream: false, dynacast: false });
       roomRef.current = room;
 
       const onTrackSubscribed = (
         track: RemoteTrack,
-        _publication: RemoteTrackPublication,
+        publication: RemoteTrackPublication,
         _participant: RemoteParticipant,
       ) => {
         if (track.kind === Track.Kind.Video) {
+          try {
+            publication.setVideoQuality?.(VideoQuality.HIGH);
+          } catch {
+            // older client
+          }
           const videoEl = videoRef.current;
           if (videoEl) {
             track.attach(videoEl);
-            void videoEl.play().catch(() => {
-              // Autoplay may be blocked until a user gesture; Start session is a gesture.
-            });
+            void videoEl.play().catch(() => {});
           }
 
-          const startFrameMonitor = () => {
-            const vidEl = videoRef.current;
-            if (!vidEl) return;
-            if (frameMonitorRef.current) frameMonitorRef.current.stop();
-
-            const readDecodedFrames = (): number => {
-              try {
-                if (typeof vidEl.getVideoPlaybackQuality === "function") {
-                  return vidEl.getVideoPlaybackQuality().totalVideoFrames;
-                }
-              } catch {
-                // fall through
-              }
-              return vidEl.currentTime;
-            };
-
-            let lastFrames = readDecodedFrames();
-            let lastAdvancedAt = performance.now();
-            let stopped = false;
-            let idleMode = false;
-
-            const intervalId = setInterval(() => {
-              if (stopped) return;
-              const frames = readDecodedFrames();
-              const now = performance.now();
-              if (frames !== lastFrames) {
-                lastFrames = frames;
-                lastAdvancedAt = now;
-                if (idleMode) {
-                  idleMode = false;
-                  setIsTalking(true);
-                }
-              } else if (!idleMode && now - lastAdvancedAt > 1200) {
-                idleMode = true;
-                setIsTalking(false);
-              }
-            }, 100);
-
-            frameMonitorRef.current = {
-              stop: () => {
-                stopped = true;
-                clearInterval(intervalId);
-              },
-            };
-          };
-
+          // reveal() only flips isReady — isTalking comes from speech_start/end.
           const reveal = () => {
             if (revealTimerRef.current) {
               clearTimeout(revealTimerRef.current);
               revealTimerRef.current = null;
             }
             setIsReady(true);
-            setIsTalking(true);
             setIsLoading(false);
-            startFrameMonitor();
           };
 
           if (videoEl) {
@@ -193,7 +152,9 @@ export function useLiveKitAvatar({
                 const { data } = sampleCtx.getImageData(0, 0, 8, 8);
                 let greenPx = 0;
                 for (let i = 0; i < data.length; i += 4) {
-                  const r = data[i], g = data[i + 1], b = data[i + 2];
+                  const r = data[i],
+                    g = data[i + 1],
+                    b = data[i + 2];
                   if (g > 150 && g > r * 3 && g > b * 3) greenPx++;
                 }
                 return greenPx > 32;
@@ -221,7 +182,7 @@ export function useLiveKitAvatar({
               });
             }
             if (revealTimerRef.current) clearTimeout(revealTimerRef.current);
-            revealTimerRef.current = setTimeout(reveal, 12000);
+            revealTimerRef.current = setTimeout(reveal, 4000);
           } else {
             reveal();
           }
@@ -229,9 +190,7 @@ export function useLiveKitAvatar({
           const el = track.attach();
           el.style.display = "none";
           document.body.appendChild(el);
-          void (el as HTMLMediaElement).play().catch(() => {
-            // Same gesture / autoplay caveat as video.
-          });
+          void (el as HTMLMediaElement).play().catch(() => {});
         }
       };
 
@@ -244,25 +203,43 @@ export function useLiveKitAvatar({
             clearTimeout(revealTimerRef.current);
             revealTimerRef.current = null;
           }
-          if (frameMonitorRef.current) {
-            frameMonitorRef.current.stop();
-            frameMonitorRef.current = null;
-          }
           setIsTalking(false);
           setIsReady(false);
         }
       };
 
+      const onDataReceived = (payload: Uint8Array) => {
+        let evt: AvatarDataEvent | null = null;
+        try {
+          evt = JSON.parse(new TextDecoder().decode(payload)) as AvatarDataEvent;
+        } catch {
+          return;
+        }
+        if (!evt || typeof evt.type !== "string") return;
+        switch (evt.type) {
+          case "speech_start":
+            setRenderFailed(false);
+            setIsTalking(true);
+            break;
+          case "speech_end":
+            setIsTalking(false);
+            break;
+          case "render_failed":
+            setRenderFailed(true);
+            setIsTalking(false);
+            break;
+          default:
+            break;
+        }
+      };
+
       room.on(RoomEvent.TrackSubscribed, onTrackSubscribed);
       room.on(RoomEvent.TrackUnsubscribed, onTrackUnsubscribed);
+      room.on(RoomEvent.DataReceived, onDataReceived);
       room.on(RoomEvent.Disconnected, () => {
         if (revealTimerRef.current) {
           clearTimeout(revealTimerRef.current);
           revealTimerRef.current = null;
-        }
-        if (frameMonitorRef.current) {
-          frameMonitorRef.current.stop();
-          frameMonitorRef.current = null;
         }
         setIsReady(false);
         setIsConnected(false);
@@ -279,9 +256,9 @@ export function useLiveKitAvatar({
   }, [celebrityId]);
 
   const stopSession = useCallback(async () => {
-    if (frameMonitorRef.current) {
-      frameMonitorRef.current.stop();
-      frameMonitorRef.current = null;
+    if (revealTimerRef.current) {
+      clearTimeout(revealTimerRef.current);
+      revealTimerRef.current = null;
     }
     if (roomRef.current) {
       await roomRef.current.disconnect();
@@ -290,6 +267,7 @@ export function useLiveKitAvatar({
     setIsReady(false);
     setIsConnected(false);
     setIsTalking(false);
+    setRenderFailed(false);
     setError(null);
   }, []);
 
@@ -298,10 +276,6 @@ export function useLiveKitAvatar({
       if (revealTimerRef.current) {
         clearTimeout(revealTimerRef.current);
         revealTimerRef.current = null;
-      }
-      if (frameMonitorRef.current) {
-        frameMonitorRef.current.stop();
-        frameMonitorRef.current = null;
       }
       if (roomRef.current) {
         roomRef.current.disconnect().catch(() => {});
@@ -321,6 +295,7 @@ export function useLiveKitAvatar({
     isConnected,
     isLoading,
     isTalking,
+    renderFailed,
     error,
     videoRef,
     startSession,

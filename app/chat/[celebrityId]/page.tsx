@@ -38,6 +38,7 @@ export default function PartnerChatPage() {
   const sessionStartedRef = useRef(false);
   const workerFailedRef = useRef(false);
   const livekitErrorRef = useRef<string | null>(null);
+  const renderFailedRef = useRef(false);
   const autoStartedRef = useRef(false);
 
   const { enqueueChunk, stop: stopAudio, initAudio } = useAudioPlayer();
@@ -48,6 +49,7 @@ export default function PartnerChatPage() {
 
   workerFailedRef.current = workerFailed;
   livekitErrorRef.current = avatar.error;
+  renderFailedRef.current = avatar.renderFailed;
 
   const hasConversation = lines.length > 0;
   const backgroundUrl = celebrity?.background_image_url || undefined;
@@ -156,7 +158,12 @@ export default function PartnerChatPage() {
         }
 
         if (payload.type === "audio_chunk" && typeof payload.data?.audio === "string") {
-          if (!sessionStartedRef.current || livekitErrorRef.current || workerFailedRef.current) {
+          if (
+            !sessionStartedRef.current ||
+            livekitErrorRef.current ||
+            workerFailedRef.current ||
+            renderFailedRef.current
+          ) {
             enqueueChunk(payload.data.audio);
           }
           return;
@@ -368,7 +375,7 @@ export default function PartnerChatPage() {
               onRetry={() => void avatar.startSession()}
               celebrityName={displayName}
               celebrityInitials={initials}
-              staticPhotoUrl={avatar.isReady ? undefined : celebrity.photo_url || undefined}
+              staticPhotoUrl={celebrity.photo_url || undefined}
               tagline={celebrity.tagline || undefined}
             />
           ) : (
