@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AvatarMediaStack } from "@/components/AvatarMediaStack";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useAvatarAssetVideos } from "@/hooks/useAvatarAssetVideos";
 import { useLiveKitAvatar } from "@/hooks/useLiveKitAvatar";
@@ -150,7 +151,6 @@ export default function VoxlyExperiencePage() {
   const avatarPhoto = celebrity?.photo_url || MESSI_AVATAR_SRC;
   const displayName = celebrity?.display_name || MESSI_DISPLAY_NAME;
   const displayTag = celebrity?.tagline || MESSI_TAG;
-  const idleReady = celebrity?.idle_asset_status === "ready" && !!celebrity?.idle_asset_url;
 
   const assetVideos = useAvatarAssetVideos({
     assets: celebrity?.assets,
@@ -164,7 +164,6 @@ export default function VoxlyExperiencePage() {
   assetVideosRef.current = assetVideos;
   const celebrityRef = useRef(celebrity);
   celebrityRef.current = celebrity;
-  const hasOverlay = Boolean(assetVideos.overlay);
 
   const showWip = useCallback((feature: string) => {
     setMenuOpen(false);
@@ -562,68 +561,34 @@ export default function VoxlyExperiencePage() {
                     WebkitMaskImage: "radial-gradient(circle at 50% 45%, #000 52%, rgba(0,0,0,0.65) 70%, transparent 84%)",
                   }}
                 >
-                  {/* Idle loop (muted) while not speaking / no overlay */}
-                  {idleReady && (
-                    <video
-                      src={celebrity!.idle_asset_url!}
-                      autoPlay
-                      loop
-                      muted
-                      playsInline
-                      preload="auto"
-                      className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                        showLiveVideo || hasOverlay ? "opacity-0" : "opacity-100"
-                      }`}
-                    />
-                  )}
-                  {/* LiveKit always mounted; visible only while speaking */}
-                  <video
-                    ref={avatar.videoRef}
-                    autoPlay
-                    playsInline
-                    className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      showLiveVideo ? "opacity-100" : "opacity-0"
-                    }`}
+                  <AvatarMediaStack
+                    videoRef={avatar.videoRef}
+                    isReady={avatar.isReady && !avatar.renderFailed}
+                    isTalking={isTalking}
+                    staticPhotoUrl={avatarPhoto}
+                    celebrityName={displayName}
+                    idleAssetUrl={celebrity?.idle_asset_url || undefined}
+                    idleAssetStatus={celebrity?.idle_asset_status || undefined}
+                    overlayVideoUrl={assetVideos.overlay?.url}
+                    overlayVideoMuted={assetVideos.overlay?.muted}
+                    overlayVideoLoop={assetVideos.overlay?.loop}
+                    onOverlayVideoEnded={assetVideos.handleEnded}
+                    preloadUrls={assetVideos.preloadUrls}
                   />
-                  {/* Photo fallback when no idle asset */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={avatarPhoto}
-                    alt={displayName}
-                    className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      showLiveVideo || idleReady || hasOverlay ? "opacity-0" : "opacity-100"
-                    }`}
-                  />
-                  {/* Greeting / filler / proactive overlay */}
-                  {assetVideos.overlay && (
-                    <video
-                      key={assetVideos.overlay.url}
-                      src={assetVideos.overlay.url}
-                      autoPlay
-                      playsInline
-                      muted={assetVideos.overlay.muted}
-                      loop={assetVideos.overlay.loop}
-                      onEnded={assetVideos.overlay.loop ? undefined : assetVideos.handleEnded}
-                      className="absolute inset-0 z-10 h-full w-full object-contain"
-                    />
-                  )}
-                  {assetVideos.preloadUrls.map((url) => (
-                    <video key={`preload-${url}`} src={url} preload="auto" muted playsInline className="hidden" />
-                  ))}
                   {(avatar.isLoading || busy === "session") && !avatar.isReady && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/45">
                       <IconLoader className="h-8 w-8 animate-spin text-white" />
                     </div>
                   )}
                   {avatar.isConnected && !avatar.isReady && !avatar.isLoading && !avatar.error && busy !== "session" && (
-                    <div className="absolute inset-x-0 bottom-6 flex justify-center">
+                    <div className="absolute inset-x-0 bottom-6 z-20 flex justify-center">
                       <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/75 backdrop-blur-sm">
                         Preparing avatar…
                       </span>
                     </div>
                   )}
                   {avatar.error && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
                       <p className="text-xs text-red-300">{avatar.error}</p>
                       <button
                         type="button"

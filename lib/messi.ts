@@ -4,8 +4,8 @@ export const MESSI_CELEBRITY_ID =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_MESSI_CELEBRITY_ID?.trim()) ||
   "adrian_vega_ficticio";
 
-export const MESSI_DISPLAY_NAME = "Leo Messi";
-export const MESSI_TAG = "FC Barcelona · Legend";
+export const MESSI_DISPLAY_NAME = "Lionel Messi";
+export const MESSI_TAG = "La Pulga. El mejor del mundo, de Rosario para el mundo.";
 /** Local fallback only — prefer celebrity.photo_url from Aidols API. */
 export const MESSI_AVATAR_SRC = "/voxly/messi-avatar.jpg";
 export const MESSI_HERO_SRC = "/voxly/hero.jpg";

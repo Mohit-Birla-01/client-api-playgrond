@@ -1,5 +1,7 @@
 "use client";
 
+import { AvatarMediaStack } from "@/components/AvatarMediaStack";
+
 interface AvatarViewProps {
   videoRef: React.RefObject<HTMLVideoElement | null>;
   isReady: boolean;
@@ -22,8 +24,7 @@ interface AvatarViewProps {
 }
 
 /**
- * Same layer stack as aidols-user / aidols-frontend:
- * overlay (greeting/filler/proactive) > live (isReady && isTalking) > idle loop > photo
+ * Same layer stack + crossfades as aidols-user-frontend AvatarView.
  */
 export function AvatarView({
   videoRef,
@@ -47,7 +48,7 @@ export function AvatarView({
 }: AvatarViewProps) {
   const showLive = isReady && isTalking;
   const idleReady = idleAssetStatus === "ready" && !!idleAssetUrl;
-  const hasOverlay = !!overlayVideoUrl;
+  const hasStaticFallback = !staticPhotoUrl && !idleReady && !isLoading && !error && !showLive && !overlayVideoUrl;
 
   const speakingGlow = isTalking
     ? "shadow-[0_0_32px_4px_rgba(108,71,255,0.35)] ring-1 ring-[#6c47ff]/50"
@@ -59,50 +60,20 @@ export function AvatarView({
         <div
           className={`pointer-events-auto relative aspect-square h-full max-h-[260px] shrink-0 overflow-hidden rounded-full border-4 bg-black/20 transition-all duration-500 sm:max-h-[280px] md:max-h-[300px] ${speakingGlow}`}
         >
-          {idleReady && (
-            <video
-              src={idleAssetUrl}
-              autoPlay
-              loop
-              muted
-              playsInline
-              preload="auto"
-              className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                showLive || hasOverlay ? "opacity-0" : "opacity-100"
-              }`}
-            />
-          )}
-          <video
-            ref={videoRef}
-            autoPlay
-            playsInline
-            className={`h-full w-full object-contain transition-opacity duration-500 ${
-              showLive ? "opacity-100" : "opacity-0"
-            }`}
+          <AvatarMediaStack
+            videoRef={videoRef}
+            isReady={isReady}
+            isTalking={isTalking}
+            staticPhotoUrl={staticPhotoUrl}
+            celebrityName={celebrityName}
+            idleAssetUrl={idleAssetUrl}
+            idleAssetStatus={idleAssetStatus}
+            overlayVideoUrl={overlayVideoUrl}
+            overlayVideoMuted={overlayVideoMuted}
+            overlayVideoLoop={overlayVideoLoop}
+            onOverlayVideoEnded={onOverlayVideoEnded}
+            preloadUrls={preloadUrls}
           />
-          {staticPhotoUrl && !showLive && !idleReady && !hasOverlay && (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={staticPhotoUrl}
-              alt={celebrityName || "celebrity"}
-              className="absolute inset-0 h-full w-full object-contain"
-            />
-          )}
-          {hasOverlay && (
-            <video
-              key={overlayVideoUrl}
-              src={overlayVideoUrl}
-              autoPlay
-              playsInline
-              muted={overlayVideoMuted}
-              loop={overlayVideoLoop}
-              onEnded={overlayVideoLoop ? undefined : onOverlayVideoEnded}
-              className="absolute inset-0 z-10 h-full w-full object-contain"
-            />
-          )}
-          {preloadUrls?.map((url) => (
-            <video key={`preload-${url}`} src={url} preload="auto" muted playsInline className="hidden" />
-          ))}
         </div>
       </div>
 
@@ -141,7 +112,7 @@ export function AvatarView({
         </div>
       )}
 
-      {!staticPhotoUrl && !idleReady && !isLoading && !error && !showLive && !hasOverlay && (
+      {hasStaticFallback && (
         <div className="absolute inset-0 flex items-center justify-center bg-[var(--bg-primary)]">
           <div className="text-center">
             <div className="mx-auto mb-4 flex h-20 w-20 items-center justify-center rounded-full bg-[var(--bg-bubble-avatar)] text-3xl font-bold text-[#6c47ff]">
