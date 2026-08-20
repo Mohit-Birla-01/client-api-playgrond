@@ -29,6 +29,25 @@ export interface Celebrity {
   native_language: string | null;
   family_slug: string | null;
   family_label: string | null;
+  idle_asset_url?: string | null;
+  idle_asset_status?: string | null;
+  assets?: CelebrityAssets;
+}
+
+/** Pre-rendered filler / greeting / proactive clips (same shape as consumer catalog). */
+export type AssetLocaleEntry = {
+  status?: string;
+  urls?: string[];
+};
+export type AssetLocaleMap = Record<string, AssetLocaleEntry>;
+export interface CelebrityAssets {
+  filler?: AssetLocaleMap;
+  filler_video?: AssetLocaleMap;
+  greeting?: AssetLocaleMap;
+  greeting_video?: AssetLocaleMap;
+  proactive?: AssetLocaleMap;
+  proactive_video?: AssetLocaleMap;
+  [assetType: string]: AssetLocaleMap | undefined;
 }
 
 export interface SessionInfo {
@@ -50,6 +69,22 @@ export interface ChatLine {
   role: "user" | "assistant" | "system";
   text: string;
 }
+
+/** LiveKit data-channel events from the avatar worker (same as user/admin). */
+export interface AvatarSpeechStartEvent {
+  type: "speech_start";
+}
+export interface AvatarSpeechEndEvent {
+  type: "speech_end";
+}
+export interface AvatarRenderFailedEvent {
+  type: "render_failed";
+  error?: string;
+}
+export type AvatarDataEvent =
+  | AvatarSpeechStartEvent
+  | AvatarSpeechEndEvent
+  | AvatarRenderFailedEvent;
 
 export async function readError(res: Response): Promise<string> {
   try {

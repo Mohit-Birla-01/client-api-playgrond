@@ -1,10 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AvatarMediaStack } from "@/components/AvatarMediaStack";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useAvatarAssetVideos } from "@/hooks/useAvatarAssetVideos";
 import { useLiveKitAvatar } from "@/hooks/useLiveKitAvatar";
+import { getAssetUrls, pickNextAssetUrl } from "@/lib/asset-videos";
 import {
-  MESSI_AVATAR_SRC,
   MESSI_CELEBRITY_ID,
   MESSI_DISPLAY_NAME,
   MESSI_HERO_SRC,
@@ -127,6 +129,7 @@ export default function VoxlyExperiencePage() {
   const sessionStartedRef = useRef(false);
   const workerFailedRef = useRef(false);
   const livekitErrorRef = useRef<string | null>(null);
+  const renderFailedRef = useRef(false);
   const talkRef = useRef<HTMLElement | null>(null);
   sessionRef.current = session;
 
@@ -138,12 +141,29 @@ export default function VoxlyExperiencePage() {
 
   workerFailedRef.current = workerFailed;
   livekitErrorRef.current = avatar.error;
+  renderFailedRef.current = avatar.renderFailed;
 
   const isTalking = avatar.isTalking;
+  /** Same as aidols AvatarView: live video only while speaking. */
+  const showLiveVideo = avatar.isReady && isTalking && !avatar.renderFailed;
   const statusLabel = isTalking ? "Speaking" : waiting || busy === "session" ? "Thinking" : "Listening";
-  const avatarPhoto = celebrity?.photo_url || MESSI_AVATAR_SRC;
+  /** API photo only — never local placeholder before idle/live video. */
+  const avatarPhoto = celebrity?.photo_url || undefined;
   const displayName = celebrity?.display_name || MESSI_DISPLAY_NAME;
   const displayTag = celebrity?.tagline || MESSI_TAG;
+
+  const assetVideos = useAvatarAssetVideos({
+    assets: celebrity?.assets,
+    locale: MESSI_LANGUAGE,
+    enabled: Boolean(session),
+    isWaiting: waiting,
+    isTalking,
+    showLive: showLiveVideo,
+  });
+  const assetVideosRef = useRef(assetVideos);
+  assetVideosRef.current = assetVideos;
+  const celebrityRef = useRef(celebrity);
+  celebrityRef.current = celebrity;
 
   const showWip = useCallback((feature: string) => {
     setMenuOpen(false);
@@ -231,11 +251,29 @@ export default function VoxlyExperiencePage() {
             ...prev,
             { id: crypto.randomUUID(), role: "system", text: "Connected — talk with Messi live." },
           ]);
+          // External WS has no greeting pipeline yet — play a catalog greeting clip like consumer UX.
+          const urls = getAssetUrls(celebrityRef.current?.assets, "greeting_video", MESSI_LANGUAGE);
+          const pick = pickNextAssetUrl(urls, null);
+          if (pick) assetVideosRef.current.playGreeting(pick);
+          return;
+        }
+
+        if (payload.type === "greeting_asset_url" && typeof payload.data?.asset_url === "string") {
+          assetVideosRef.current.playGreeting(
+            payload.data.asset_url,
+            typeof payload.data.source_text === "string" ? payload.data.source_text : undefined,
+          );
           return;
         }
 
         if (payload.type === "audio_chunk" && typeof payload.data?.audio === "string") {
-          if (!sessionStartedRef.current || livekitErrorRef.current || workerFailedRef.current) {
+          // Same fallback as consumer: play WS audio when LiveKit video isn't driving the turn.
+          if (
+            !sessionStartedRef.current ||
+            livekitErrorRef.current ||
+            workerFailedRef.current ||
+            renderFailedRef.current
+          ) {
             enqueueChunk(payload.data.audio);
           }
           return;
@@ -354,6 +392,7 @@ export default function VoxlyExperiencePage() {
 
       initAudio();
       stopAudio();
+      assetVideosRef.current.notifyActivity();
       wsRef.current.send(JSON.stringify({ message: text }));
       setLines((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
       setDraft("");
@@ -522,38 +561,34 @@ export default function VoxlyExperiencePage() {
                     WebkitMaskImage: "radial-gradient(circle at 50% 45%, #000 52%, rgba(0,0,0,0.65) 70%, transparent 84%)",
                   }}
                 >
-                  {/* LiveKit talking-head video — always mounted so the track can attach */}
-                  <video
-                    ref={avatar.videoRef}
-                    autoPlay
-                    playsInline
-                    className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      avatar.isReady ? "opacity-100" : "opacity-0"
-                    }`}
-                  />
-                  {/* Aidols celebrity photo until LiveKit video is ready */}
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img
-                    src={avatarPhoto}
-                    alt={displayName}
-                    className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      avatar.isReady ? "opacity-0" : "opacity-100"
-                    }`}
+                  <AvatarMediaStack
+                    videoRef={avatar.videoRef}
+                    isReady={avatar.isReady && !avatar.renderFailed}
+                    isTalking={isTalking}
+                    staticPhotoUrl={avatarPhoto}
+                    celebrityName={displayName}
+                    idleAssetUrl={celebrity?.idle_asset_url || undefined}
+                    idleAssetStatus={celebrity?.idle_asset_status || undefined}
+                    overlayVideoUrl={assetVideos.overlay?.url}
+                    overlayVideoMuted={assetVideos.overlay?.muted}
+                    overlayVideoLoop={assetVideos.overlay?.loop}
+                    onOverlayVideoEnded={assetVideos.handleEnded}
+                    preloadUrls={assetVideos.preloadUrls}
                   />
                   {(avatar.isLoading || busy === "session") && !avatar.isReady && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/45">
+                    <div className="absolute inset-0 z-20 flex items-center justify-center bg-black/45">
                       <IconLoader className="h-8 w-8 animate-spin text-white" />
                     </div>
                   )}
                   {avatar.isConnected && !avatar.isReady && !avatar.isLoading && !avatar.error && busy !== "session" && (
-                    <div className="absolute inset-x-0 bottom-6 flex justify-center">
+                    <div className="absolute inset-x-0 bottom-6 z-20 flex justify-center">
                       <span className="rounded-full bg-black/60 px-3 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/75 backdrop-blur-sm">
                         Preparing avatar…
                       </span>
                     </div>
                   )}
                   {avatar.error && (
-                    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
+                    <div className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-3 bg-black/70 px-4 text-center">
                       <p className="text-xs text-red-300">{avatar.error}</p>
                       <button
                         type="button"
