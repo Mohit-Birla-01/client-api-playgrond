@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { AvatarView } from "@/components/AvatarView";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useAvatarAssetVideos } from "@/hooks/useAvatarAssetVideos";
 import { useLiveKitAvatar } from "@/hooks/useLiveKitAvatar";
+import { getAssetUrls, pickNextAssetUrl } from "@/lib/asset-videos";
 import { readError, type ChatLine, type Celebrity, type PartnerMe, type SessionInfo, type TokenStatus } from "@/lib/types";
 
 type WsState = "idle" | "connecting" | "open" | "closed";
@@ -50,6 +52,20 @@ export default function PartnerChatPage() {
   workerFailedRef.current = workerFailed;
   livekitErrorRef.current = avatar.error;
   renderFailedRef.current = avatar.renderFailed;
+
+  const showLive = avatar.isReady && avatar.isTalking && !avatar.renderFailed;
+  const assetVideos = useAvatarAssetVideos({
+    assets: celebrity?.assets,
+    locale: language,
+    enabled: Boolean(session),
+    isWaiting: waiting,
+    isTalking: avatar.isTalking,
+    showLive,
+  });
+  const assetVideosRef = useRef(assetVideos);
+  assetVideosRef.current = assetVideos;
+  const celebrityRef = useRef(celebrity);
+  celebrityRef.current = celebrity;
 
   const hasConversation = lines.length > 0;
   const backgroundUrl = celebrity?.background_image_url || undefined;
@@ -154,6 +170,17 @@ export default function PartnerChatPage() {
               text: `Connected · ${info.celebrity_id}`,
             },
           ]);
+          const urls = getAssetUrls(celebrityRef.current?.assets, "greeting_video", language);
+          const pick = pickNextAssetUrl(urls, null);
+          if (pick) assetVideosRef.current.playGreeting(pick);
+          return;
+        }
+
+        if (payload.type === "greeting_asset_url" && typeof payload.data?.asset_url === "string") {
+          assetVideosRef.current.playGreeting(
+            payload.data.asset_url,
+            typeof payload.data.source_text === "string" ? payload.data.source_text : undefined,
+          );
           return;
         }
 
@@ -287,6 +314,7 @@ export default function PartnerChatPage() {
     if (!text || wsState !== "open" || !wsRef.current) return;
     initAudio();
     stopAudio();
+    assetVideosRef.current.notifyActivity();
     wsRef.current.send(JSON.stringify({ message: text }));
     setLines((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
     setDraft("");
@@ -376,6 +404,13 @@ export default function PartnerChatPage() {
               celebrityName={displayName}
               celebrityInitials={initials}
               staticPhotoUrl={celebrity.photo_url || undefined}
+              idleAssetUrl={celebrity.idle_asset_url || undefined}
+              idleAssetStatus={celebrity.idle_asset_status || undefined}
+              overlayVideoUrl={assetVideos.overlay?.url}
+              overlayVideoMuted={assetVideos.overlay?.muted}
+              overlayVideoLoop={assetVideos.overlay?.loop}
+              onOverlayVideoEnded={assetVideos.handleEnded}
+              preloadUrls={assetVideos.preloadUrls}
               tagline={celebrity.tagline || undefined}
             />
           ) : (

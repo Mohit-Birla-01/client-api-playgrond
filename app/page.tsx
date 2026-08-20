@@ -2,7 +2,9 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
+import { useAvatarAssetVideos } from "@/hooks/useAvatarAssetVideos";
 import { useLiveKitAvatar } from "@/hooks/useLiveKitAvatar";
+import { getAssetUrls, pickNextAssetUrl } from "@/lib/asset-videos";
 import {
   MESSI_AVATAR_SRC,
   MESSI_CELEBRITY_ID,
@@ -148,6 +150,21 @@ export default function VoxlyExperiencePage() {
   const avatarPhoto = celebrity?.photo_url || MESSI_AVATAR_SRC;
   const displayName = celebrity?.display_name || MESSI_DISPLAY_NAME;
   const displayTag = celebrity?.tagline || MESSI_TAG;
+  const idleReady = celebrity?.idle_asset_status === "ready" && !!celebrity?.idle_asset_url;
+
+  const assetVideos = useAvatarAssetVideos({
+    assets: celebrity?.assets,
+    locale: MESSI_LANGUAGE,
+    enabled: Boolean(session),
+    isWaiting: waiting,
+    isTalking,
+    showLive: showLiveVideo,
+  });
+  const assetVideosRef = useRef(assetVideos);
+  assetVideosRef.current = assetVideos;
+  const celebrityRef = useRef(celebrity);
+  celebrityRef.current = celebrity;
+  const hasOverlay = Boolean(assetVideos.overlay);
 
   const showWip = useCallback((feature: string) => {
     setMenuOpen(false);
@@ -235,6 +252,18 @@ export default function VoxlyExperiencePage() {
             ...prev,
             { id: crypto.randomUUID(), role: "system", text: "Connected — talk with Messi live." },
           ]);
+          // External WS has no greeting pipeline yet — play a catalog greeting clip like consumer UX.
+          const urls = getAssetUrls(celebrityRef.current?.assets, "greeting_video", MESSI_LANGUAGE);
+          const pick = pickNextAssetUrl(urls, null);
+          if (pick) assetVideosRef.current.playGreeting(pick);
+          return;
+        }
+
+        if (payload.type === "greeting_asset_url" && typeof payload.data?.asset_url === "string") {
+          assetVideosRef.current.playGreeting(
+            payload.data.asset_url,
+            typeof payload.data.source_text === "string" ? payload.data.source_text : undefined,
+          );
           return;
         }
 
@@ -364,6 +393,7 @@ export default function VoxlyExperiencePage() {
 
       initAudio();
       stopAudio();
+      assetVideosRef.current.notifyActivity();
       wsRef.current.send(JSON.stringify({ message: text }));
       setLines((prev) => [...prev, { id: crypto.randomUUID(), role: "user", text }]);
       setDraft("");
@@ -532,7 +562,21 @@ export default function VoxlyExperiencePage() {
                     WebkitMaskImage: "radial-gradient(circle at 50% 45%, #000 52%, rgba(0,0,0,0.65) 70%, transparent 84%)",
                   }}
                 >
-                  {/* LiveKit always mounted; visible only while speaking (same as aidols AvatarView) */}
+                  {/* Idle loop (muted) while not speaking / no overlay */}
+                  {idleReady && (
+                    <video
+                      src={celebrity!.idle_asset_url!}
+                      autoPlay
+                      loop
+                      muted
+                      playsInline
+                      preload="auto"
+                      className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
+                        showLiveVideo || hasOverlay ? "opacity-0" : "opacity-100"
+                      }`}
+                    />
+                  )}
+                  {/* LiveKit always mounted; visible only while speaking */}
                   <video
                     ref={avatar.videoRef}
                     autoPlay
@@ -541,15 +585,31 @@ export default function VoxlyExperiencePage() {
                       showLiveVideo ? "opacity-100" : "opacity-0"
                     }`}
                   />
-                  {/* Photo / idle while not speaking */}
+                  {/* Photo fallback when no idle asset */}
                   {/* eslint-disable-next-line @next/next/no-img-element */}
                   <img
                     src={avatarPhoto}
                     alt={displayName}
                     className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-500 ${
-                      showLiveVideo ? "opacity-0" : "opacity-100"
+                      showLiveVideo || idleReady || hasOverlay ? "opacity-0" : "opacity-100"
                     }`}
                   />
+                  {/* Greeting / filler / proactive overlay */}
+                  {assetVideos.overlay && (
+                    <video
+                      key={assetVideos.overlay.url}
+                      src={assetVideos.overlay.url}
+                      autoPlay
+                      playsInline
+                      muted={assetVideos.overlay.muted}
+                      loop={assetVideos.overlay.loop}
+                      onEnded={assetVideos.overlay.loop ? undefined : assetVideos.handleEnded}
+                      className="absolute inset-0 z-10 h-full w-full object-contain"
+                    />
+                  )}
+                  {assetVideos.preloadUrls.map((url) => (
+                    <video key={`preload-${url}`} src={url} preload="auto" muted playsInline className="hidden" />
+                  ))}
                   {(avatar.isLoading || busy === "session") && !avatar.isReady && (
                     <div className="absolute inset-0 flex items-center justify-center bg-black/45">
                       <IconLoader className="h-8 w-8 animate-spin text-white" />
