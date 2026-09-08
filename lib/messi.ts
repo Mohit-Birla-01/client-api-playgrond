@@ -2,7 +2,7 @@
 /** Override with NEXT_PUBLIC_MESSI_CELEBRITY_ID; falls back to Lionel Messi. */
 export const MESSI_CELEBRITY_ID =
   (typeof process !== "undefined" && process.env.NEXT_PUBLIC_MESSI_CELEBRITY_ID?.trim()) ||
-  "adrian_vega_ficticio";
+  "lionel_messi";
 
 export const MESSI_DISPLAY_NAME = "Lionel Messi";
 export const MESSI_TAG = "La Pulga. El mejor del mundo, de Rosario para el mundo.";
