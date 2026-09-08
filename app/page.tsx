@@ -26,6 +26,9 @@ const MARQUEE = [
   "META QUEST READY",
 ] as const;
 
+/** Tab/background hide → end after this if user does not return. */
+const SESSION_HIDDEN_GRACE_MS = 5 * 60 * 1000;
+
 const NAV_ITEMS = ["Home", "Compete", "Enjoy", "Connect", "Train"] as const;
 
 function IconArrowUpRight({ className }: { className?: string }) {
@@ -131,6 +134,10 @@ export default function VoxlyExperiencePage() {
   const livekitErrorRef = useRef<string | null>(null);
   const renderFailedRef = useRef(false);
   const talkRef = useRef<HTMLElement | null>(null);
+  const hideEndTimerRef = useRef<number | null>(null);
+  const endSessionRef = useRef<(opts?: { keepalive?: boolean }) => Promise<void>>(
+    async () => undefined,
+  );
   sessionRef.current = session;
 
   const { enqueueChunk, stop: stopAudio, initAudio } = useAudioPlayer();
@@ -326,6 +333,13 @@ export default function VoxlyExperiencePage() {
     };
   };
 
+  const clearHideEndTimer = useCallback(() => {
+    if (hideEndTimerRef.current != null) {
+      window.clearTimeout(hideEndTimerRef.current);
+      hideEndTimerRef.current = null;
+    }
+  }, []);
+
   const startSession = useCallback(async () => {
     if (!status?.configured) {
       setError("API token missing in .env — add AIDOLS_API_TOKEN and restart.");
@@ -336,6 +350,7 @@ export default function VoxlyExperiencePage() {
     setError(null);
     setLines([]);
     setWorkerFailed(false);
+    clearHideEndTimer();
     try {
       initAudio();
       const prev = sessionRef.current;
@@ -368,26 +383,95 @@ export default function VoxlyExperiencePage() {
       setBusy(null);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [status?.configured, initAudio, avatar, stopAudio]);
+  }, [status?.configured, initAudio, avatar, stopAudio, clearHideEndTimer]);
+
+  const endSession = useCallback(
+    async (opts?: { keepalive?: boolean }) => {
+      const current = sessionRef.current;
+      if (!current) return;
+      clearHideEndTimer();
+      setBusy("end");
+      setError(null);
+      try {
+        disconnectWs();
+        if (!opts?.keepalive) {
+          await avatar.stopSession();
+          stopAudio();
+        }
+        await fetch(`/api/sessions/${current.session_id}/end`, {
+          method: "POST",
+          keepalive: Boolean(opts?.keepalive),
+        }).catch(() => null);
+        setLines([]);
+        setSession(null);
+        sessionRef.current = null;
+        sessionStartedRef.current = false;
+        setWaiting(false);
+        setWorkerFailed(false);
+      } catch (e) {
+        if (!opts?.keepalive) {
+          setError(e instanceof Error ? e.message : "Failed to end session");
+        }
+      } finally {
+        setBusy(null);
+      }
+    },
+    [avatar, clearHideEndTimer, stopAudio],
+  );
+
+  endSessionRef.current = endSession;
 
   useEffect(() => {
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") {
+        if (!sessionRef.current) return;
+        clearHideEndTimer();
+        hideEndTimerRef.current = window.setTimeout(() => {
+          void endSessionRef.current({ keepalive: true });
+        }, SESSION_HIDDEN_GRACE_MS);
+        return;
+      }
+      // User returned within the grace window — keep session.
+      clearHideEndTimer();
+    };
+
+    const onPageHide = (event: PageTransitionEvent) => {
+      // Close / hard navigate (not bfcache restore).
+      if (event.persisted) return;
+      if (!sessionRef.current) return;
+      clearHideEndTimer();
+      void endSessionRef.current({ keepalive: true });
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("pagehide", onPageHide);
     return () => {
-      disconnectWs();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("pagehide", onPageHide);
+      clearHideEndTimer();
+      // Leave this page (in-app navigation) → end immediately.
+      if (sessionRef.current) {
+        void endSessionRef.current({ keepalive: true });
+      } else {
+        disconnectWs();
+      }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [clearHideEndTimer]);
 
   const sendMessage = useCallback(
     async (raw?: string) => {
       const text = (raw ?? draft).trim();
       if (!text || waiting || busy) return;
 
-      if (wsState !== "open" || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        const ok = await startSession();
-        if (!ok || !wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-          setError("Could not open live session. Try Start a session.");
-          return;
-        }
+      if (
+        !session ||
+        wsState !== "open" ||
+        !wsRef.current ||
+        wsRef.current.readyState !== WebSocket.OPEN
+      ) {
+        setError("Start a session first, then send a message.");
+        return;
       }
 
       initAudio();
@@ -399,7 +483,7 @@ export default function VoxlyExperiencePage() {
       setWaiting(true);
       setError(null);
     },
-    [draft, waiting, busy, wsState, startSession, initAudio, stopAudio],
+    [draft, waiting, busy, session, wsState, initAudio, stopAudio],
   );
 
   const marqueeItems = [...MARQUEE, ...MARQUEE, ...MARQUEE];
@@ -626,18 +710,53 @@ export default function VoxlyExperiencePage() {
             </div>
 
             <div className="flex flex-col rounded-[28px] border border-white/10 bg-white/[0.03] p-6 backdrop-blur-xl md:p-8">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#a8a3d4]">Live session</p>
-                <span className="inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6c47ff]">
-                  <IconVolume className="h-3.5 w-3.5" /> Voice on
-                </span>
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-[#a8a3d4]">Live session</p>
+                  <span
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-wider ${
+                      session
+                        ? "bg-emerald-500/15 text-emerald-300"
+                        : "bg-white/10 text-white/45"
+                    }`}
+                  >
+                    {session ? "Active" : "Idle"}
+                  </span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    onClick={() => void startSession()}
+                    className="rounded-full bg-[#6c47ff] px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-white transition-colors hover:bg-[#7d5cff] disabled:opacity-40"
+                  >
+                    {busy === "session"
+                      ? "Starting…"
+                      : session
+                        ? "Restart"
+                        : "Start"}
+                  </button>
+                  <button
+                    type="button"
+                    disabled={Boolean(busy) || !session}
+                    onClick={() => void endSession()}
+                    className="rounded-full border border-red-400/40 px-4 py-1.5 text-[11px] font-bold uppercase tracking-wider text-red-300 transition-colors hover:bg-red-500/10 disabled:opacity-40"
+                  >
+                    {busy === "end" ? "Ending…" : "End"}
+                  </button>
+                  <span className="ml-1 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-[0.16em] text-[#6c47ff]">
+                    <IconVolume className="h-3.5 w-3.5" /> Voice on
+                  </span>
+                </div>
               </div>
 
               <div ref={scrollRef} className="mt-6 flex-1 space-y-3 overflow-y-auto pr-1 lg:max-h-[360px] lg:min-h-[300px]">
                 {lines.length === 0 && !waiting && (
                   <div className="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
                     <p className="text-sm leading-relaxed text-[#b9b6d6]">
-                      Ask anything — the reply is generated and voiced live. Tap any answer to hear it again.
+                      {session
+                        ? "Ask anything — the reply is generated and voiced live. Tap any answer to hear it again."
+                        : "Press Start to open a live session, then chat or use a prompt."}
                     </p>
                   </div>
                 )}
@@ -680,14 +799,16 @@ export default function VoxlyExperiencePage() {
                 <input
                   value={draft}
                   onChange={(e) => setDraft(e.target.value)}
-                  disabled={waiting}
-                  placeholder="Talk with Messi…"
+                  disabled={waiting || !session}
+                  placeholder={
+                    session ? "Talk with Messi…" : "Start a session to talk…"
+                  }
                   aria-label="Message Messi"
                   className="flex-1 bg-transparent text-sm text-white outline-none placeholder:text-white/35 disabled:opacity-50"
                 />
                 <button
                   type="submit"
-                  disabled={waiting || !draft.trim()}
+                  disabled={waiting || !session || !draft.trim()}
                   className="inline-flex h-9 w-9 items-center justify-center rounded-full bg-[#6c47ff] text-white transition-opacity disabled:opacity-40"
                   aria-label="Send"
                 >
@@ -700,8 +821,12 @@ export default function VoxlyExperiencePage() {
                   <button
                     key={prompt}
                     type="button"
+                    disabled={!session || waiting || Boolean(busy)}
                     onClick={() => void sendMessage(prompt)}
-                    className="rounded-full border border-white/12 px-3.5 py-1.5 text-xs text-[#b9b6d6] transition-colors hover:border-[#6c47ff]/60 hover:text-white"
+                    title={
+                      session ? undefined : "Start a session to use prompts"
+                    }
+                    className="rounded-full border border-white/12 px-3.5 py-1.5 text-xs text-[#b9b6d6] transition-colors hover:border-[#6c47ff]/60 hover:text-white disabled:cursor-not-allowed disabled:opacity-35 disabled:hover:border-white/12 disabled:hover:text-[#b9b6d6]"
                   >
                     {prompt}
                   </button>
@@ -711,15 +836,6 @@ export default function VoxlyExperiencePage() {
           </div>
 
           <div className="mt-12 flex flex-wrap items-center gap-4">
-            <button
-              type="button"
-              disabled={Boolean(busy)}
-              onClick={() => void startSession()}
-              className="inline-flex items-center gap-2 rounded-md bg-[#6c47ff] px-6 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#7d5cff] disabled:opacity-50"
-            >
-              {busy === "session" ? "Starting…" : session ? "Restart session" : "Start a session"}{" "}
-              <IconArrowUpRight className="h-4 w-4" />
-            </button>
             <button
               type="button"
               onClick={() => showWip("Explore the platform")}
